@@ -2,6 +2,7 @@ package data
 
 import (
 	"encoding/json"
+	"errors"
 	"io"
 )
 
@@ -17,6 +18,8 @@ var products = &Products{
 	&Product{Id: 2, Title: "laptop", Price: 300000},
 }
 
+var NotfoundError error = errors.New("product not found")
+
 func GetProducts() *Products {
 	return products
 }
@@ -27,6 +30,32 @@ func AddProduct(p *Product) {
 
 	prods = append(prods, p)
 	products = &prods
+}
+
+func UpdateProduct(id int, p *Product) error {
+	_, pos, err := findProduct(id)
+	if err != nil {
+		return err
+	}
+	p.Id = id
+	(*products)[pos] = p
+
+	return nil
+}
+
+func findProduct(id int) (p *Product, pos int, err error) {
+	pos = -1
+	for i, v := range *products {
+		if v.Id == id {
+			pos = i
+			p = v
+		}
+	}
+	if pos == -1 {
+		return nil, pos, NotfoundError
+	}
+	return p, pos, nil
+
 }
 
 func (p *Products) ToJson(w io.Writer) error {
