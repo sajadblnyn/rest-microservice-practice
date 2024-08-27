@@ -4,12 +4,14 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+
+	"github.com/go-playground/validator/v10"
 )
 
 type Product struct {
 	Id    int    `json:"id"`
-	Title string `json:"title"`
-	Price int64  `json:"price"`
+	Title string `json:"title" validate:"required,titleLength"`
+	Price int64  `json:"price" validate:"gte=0,lte=2000000"`
 }
 type Products []*Product
 
@@ -71,4 +73,18 @@ func (p *Product) FromJson(r io.Reader) error {
 func (p *Product) ToJson(w io.Writer) error {
 	e := json.NewEncoder(w)
 	return e.Encode(p)
+}
+
+func (p *Product) Validate() error {
+	validate := validator.New()
+	validate.RegisterValidation("titleLength", titleLengthValidation)
+
+	return validate.Struct(p)
+}
+
+func titleLengthValidation(fl validator.FieldLevel) bool {
+	if len(fl.Field().String()) < 5 || len(fl.Field().String()) > 50 {
+		return false
+	}
+	return true
 }
