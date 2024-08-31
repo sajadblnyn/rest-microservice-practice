@@ -35,6 +35,7 @@ func main() {
 
 	storageRouter := router.Methods(http.MethodGet).Subrouter()
 	storageRouter.Handle("/storage/{filename:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}\\.[a-z]{3}}", http.StripPrefix("/storage/", http.FileServer(http.Dir("./storage/"))))
+	storageRouter.Use(middlewares.GzipMiddlewareFactory)
 
 	co := gorillaHandlers.CORS(gorillaHandlers.AllowedOrigins([]string{"http://127.0.0.1:8080", "http://localhost:8080"}))
 
