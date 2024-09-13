@@ -3,30 +3,44 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
 	"time"
 
 	gorillaHandlers "github.com/gorilla/handlers"
+	"google.golang.org/grpc"
 
 	"github.com/gorilla/mux"
+	"github.com/sajadblnyn/rest-microservice-practice/data"
 	"github.com/sajadblnyn/rest-microservice-practice/handlers"
 	"github.com/sajadblnyn/rest-microservice-practice/middlewares"
+	"github.com/sajadblnyn/rest-microservice-practice/protos/currency/protos/currency"
 )
 
 func main() {
+	cc, err := grpc.Dial("127.0.0.1:9092", grpc.WithInsecure())
+	if err != nil {
+		log.Println("error in connecting ro currency service by grpc:", err)
+	}
+	gc := currency.NewCurrencyClient(cc)
 
+	dp := data.NewProductDB(gc)
+	productHandler := handlers.NewProductHandler(dp)
 	router := mux.NewRouter()
 	getRouter := router.Methods(http.MethodGet).Subrouter()
-	getRouter.HandleFunc("/", handlers.GetProducts)
+	getRouter.HandleFunc("/", productHandler.GetProducts).Queries("currency", "{[A-Z]{3}}")
+	getRouter.HandleFunc("/", productHandler.GetProducts)
+	getRouter.HandleFunc("/{id:[0-9]+}", productHandler.GetProductById).Queries("currency", "{[A-Z]{3}}")
+	getRouter.HandleFunc("/{id:[0-9]+}", productHandler.GetProductById)
 
 	putRouter := router.Methods(http.MethodPut).Subrouter()
-	putRouter.HandleFunc("/{id:[0-9]+}", handlers.UpdateProduct)
+	putRouter.HandleFunc("/{id:[0-9]+}", productHandler.UpdateProduct)
 	putRouter.Use(middlewares.ProductMiddlewareFactory)
 
 	postRouter := router.Methods(http.MethodPost).Subrouter()
-	postRouter.HandleFunc("/", handlers.AddProducts)
+	postRouter.HandleFunc("/", productHandler.AddProducts)
 	postRouter.Use(middlewares.ProductMiddlewareFactory)
 	// m.Handle("/", &handlers.Product{})
 

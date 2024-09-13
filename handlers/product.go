@@ -10,6 +10,7 @@ import (
 )
 
 type Product struct {
+	dp *data.ProductDB
 }
 
 // func (p *Product) ServeHTTP(rs http.ResponseWriter, r *http.Request) {
@@ -39,17 +40,53 @@ type Product struct {
 
 // }
 
-func GetProducts(rs http.ResponseWriter, r *http.Request) {
-	products := data.GetProducts()
+func NewProductHandler(dp *data.ProductDB) *Product {
+	return &Product{dp: dp}
+}
 
-	err := products.ToJson(rs)
+func (p *Product) GetProducts(rs http.ResponseWriter, r *http.Request) {
+
+	cr := r.URL.Query().Get("currency")
+	if cr == "" {
+		cr = "USD"
+	}
+	products, err := p.dp.GetProducts(cr)
+	if err != nil {
+		http.Error(rs, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	err = products.ToJson(rs)
 	if err != nil {
 		http.Error(rs, err.Error(), http.StatusInternalServerError)
 		return
 	}
 }
 
-func UpdateProduct(rs http.ResponseWriter, r *http.Request) {
+func (p *Product) GetProductById(rs http.ResponseWriter, r *http.Request) {
+
+	cr := r.URL.Query().Get("currency")
+	if cr == "" {
+		cr = "USD"
+	}
+	vars := mux.Vars(r)
+	id, err := strconv.Atoi(vars["id"])
+	if err != nil {
+		http.Error(rs, err.Error(), http.StatusBadRequest)
+		return
+	}
+	product, err := p.dp.GetProductById(id, cr)
+	if err != nil {
+		http.Error(rs, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	err = product.ToJson(rs)
+	if err != nil {
+		http.Error(rs, err.Error(), http.StatusInternalServerError)
+		return
+	}
+}
+
+func (p *Product) UpdateProduct(rs http.ResponseWriter, r *http.Request) {
 	vars := mux.Vars(r)
 	id, err := strconv.Atoi(vars["id"])
 	if err != nil {
@@ -59,7 +96,7 @@ func UpdateProduct(rs http.ResponseWriter, r *http.Request) {
 
 	prod := (r.Context().Value(middlewares.ProductKey).(*data.Product))
 
-	err = data.UpdateProduct(id, prod)
+	err = p.dp.UpdateProduct(id, prod)
 
 	if err == data.NotfoundError {
 		http.Error(rs, err.Error(), http.StatusNotFound)
@@ -77,11 +114,11 @@ func UpdateProduct(rs http.ResponseWriter, r *http.Request) {
 
 }
 
-func AddProducts(rs http.ResponseWriter, r *http.Request) {
+func (p *Product) AddProducts(rs http.ResponseWriter, r *http.Request) {
 
 	prod := (r.Context().Value(middlewares.ProductKey).(*data.Product))
 
-	data.AddProduct(prod)
+	p.dp.AddProduct(prod)
 
 	err := prod.ToJson(rs)
 	if err != nil {

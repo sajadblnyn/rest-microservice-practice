@@ -1,17 +1,49 @@
 package data
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 
 	"github.com/go-playground/validator/v10"
+	"github.com/sajadblnyn/rest-microservice-practice/protos/currency/protos/currency"
 )
 
+type ProductDB struct {
+	c            currency.CurrencyClient
+	rates        map[string]float64
+	subscription currency.Currency_SubscribeRatesClient
+}
+
+func NewProductDB(c currency.CurrencyClient) *ProductDB {
+	pd := &ProductDB{c: c, rates: map[string]float64{}, subscription: nil}
+	go pd.handleRatesUpdates()
+	return pd
+}
+
+func (pd *ProductDB) handleRatesUpdates() {
+	sub, err := pd.c.SubscribeRates(context.Background())
+	if err != nil {
+		fmt.Println(err)
+	}
+	pd.subscription = sub
+	for {
+		rr, err := sub.Recv()
+		fmt.Println("Recieved updated rate from server", "dest", rr.GetDestination().String(), "rate", rr.GetRate())
+
+		if err != nil {
+			fmt.Println(err)
+		}
+		pd.rates[rr.Destination.String()] = rr.GetRate()
+	}
+}
+
 type Product struct {
-	Id    int    `json:"id"`
-	Title string `json:"title" validate:"required,titleLength"`
-	Price int64  `json:"price" validate:"gte=0,lte=2000000"`
+	Id    int     `json:"id"`
+	Title string  `json:"title" validate:"required,titleLength"`
+	Price float64 `json:"price" validate:"gte=0,lte=2000000"`
 }
 type Products []*Product
 
@@ -22,11 +54,42 @@ var products = &Products{
 
 var NotfoundError error = errors.New("product not found")
 
-func GetProducts() *Products {
-	return products
+func (pd *ProductDB) GetProducts(destCurrency string) (*Products, error) {
+
+	rate, err := pd.getCurrencyRate(destCurrency)
+
+	if err != nil {
+		return nil, err
+	}
+
+	var prods Products
+	for _, v := range *products {
+		var prod Product = *v
+		prod.Price = prod.Price * rate
+
+		prods = append(prods, &prod)
+	}
+	return &prods, nil
 }
 
-func AddProduct(p *Product) {
+func (pd *ProductDB) GetProductById(id int, destCurrency string) (*Product, error) {
+
+	rate, err := pd.getCurrencyRate(destCurrency)
+	if err != nil {
+		return nil, err
+	}
+
+	p, _, err := pd.findProduct(id)
+	if err != nil {
+		return nil, err
+	}
+
+	np := *p
+	np.Price = rate * np.Price
+	return &np, nil
+}
+
+func (pd *ProductDB) AddProduct(p *Product) {
 	prods := *products
 	p.Id = prods[len(prods)-1].Id + 1
 
@@ -34,8 +97,8 @@ func AddProduct(p *Product) {
 	products = &prods
 }
 
-func UpdateProduct(id int, p *Product) error {
-	_, pos, err := findProduct(id)
+func (pd *ProductDB) UpdateProduct(id int, p *Product) error {
+	_, pos, err := pd.findProduct(id)
 	if err != nil {
 		return err
 	}
@@ -45,7 +108,31 @@ func UpdateProduct(id int, p *Product) error {
 	return nil
 }
 
-func findProduct(id int) (p *Product, pos int, err error) {
+func (pd *ProductDB) getCurrencyRate(destCurrency string) (float64, error) {
+	rate, ok := pd.rates[destCurrency]
+
+	if ok {
+		return rate, nil
+	}
+
+	rr, err := pd.c.GetRate(context.Background(), &currency.RateRequest{
+		Base:        currency.Currencies(currency.Currencies_value[currency.Currencies_USD.String()]),
+		Destination: currency.Currencies(currency.Currencies_value[destCurrency])})
+
+	if err != nil {
+		return 1, err
+	}
+
+	pd.rates[rr.Destination.String()] = rr.GetRate()
+
+	err = pd.subscription.Send(&currency.RateRequest{
+		Base:        currency.Currencies(currency.Currencies_value[currency.Currencies_USD.String()]),
+		Destination: currency.Currencies(currency.Currencies_value[destCurrency])})
+
+	return rr.Rate, err
+}
+
+func (pd *ProductDB) findProduct(id int) (p *Product, pos int, err error) {
 	pos = -1
 	for i, v := range *products {
 		if v.Id == id {
