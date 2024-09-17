@@ -9,6 +9,8 @@ import (
 
 	"github.com/go-playground/validator/v10"
 	"github.com/sajadblnyn/rest-microservice-practice/protos/currency/protos/currency"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/status"
 )
 
 type ProductDB struct {
@@ -31,12 +33,20 @@ func (pd *ProductDB) handleRatesUpdates() {
 	pd.subscription = sub
 	for {
 		rr, err := sub.Recv()
-		fmt.Println("Recieved updated rate from server", "dest", rr.GetDestination().String(), "rate", rr.GetRate())
-
 		if err != nil {
 			fmt.Println(err)
+			return
 		}
-		pd.rates[rr.Destination.String()] = rr.GetRate()
+		grpcErr := rr.GetError()
+		if grpcErr != nil {
+			fmt.Println(grpcErr)
+			continue
+		}
+
+		resp := rr.GetRateResponse()
+		fmt.Println("Recieved updated rate from server", "dest", resp.GetDestination().String(), "rate", resp.GetRate())
+
+		pd.rates[resp.Destination.String()] = resp.GetRate()
 	}
 }
 
@@ -120,6 +130,16 @@ func (pd *ProductDB) getCurrencyRate(destCurrency string) (float64, error) {
 		Destination: currency.Currencies(currency.Currencies_value[destCurrency])})
 
 	if err != nil {
+		s, ok := status.FromError(err)
+		if ok {
+			md := s.Details()[0].(*currency.RateRequest)
+
+			if s.Code() == codes.InvalidArgument {
+				return 1, fmt.Errorf("base and destination currency are the same base:%s dest:%s", md.Base.String(), md.Destination.String())
+			}
+			return 1, fmt.Errorf("unable to get currencies rate base:%s dest%s message:%s", md.Base.String(), md.Destination.String(), s.Message())
+
+		}
 		return 1, err
 	}
 
